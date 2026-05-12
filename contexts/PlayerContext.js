@@ -206,6 +206,22 @@ export function PlayerProvider({ children }) {
 
     const audio = audioRef.current;
 
+    // iOS Audio Unlock: Safari requires audio to be played synchronously on user interaction
+    const unlockAudio = () => {
+      if (!audio.src || audio.src === window.location.href) {
+        // Play a silent base64 mp3 to unlock the audio element
+        audio.src = 'data:audio/mp3;base64,//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+        audio.play().then(() => {
+          audio.pause();
+        }).catch(() => {});
+      }
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
+    };
+
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    document.addEventListener('click', unlockAudio, { once: true });
+
     const onTimeUpdate = () => {
       const time = audio.currentTime;
       dispatch({ type: ACTIONS.SET_CURRENT_TIME, payload: time });
@@ -259,6 +275,8 @@ export function PlayerProvider({ children }) {
       audio.removeEventListener('error', onError);
       audio.removeEventListener('waiting', onWaiting);
       audio.removeEventListener('canplay', onCanPlay);
+      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
