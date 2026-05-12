@@ -25,13 +25,12 @@ function setCache(key, data) {
 
 // Invidious instances for fallback
 const INVIDIOUS_INSTANCES = [
-  'https://inv.tux.pizza',
-  'https://invidious.weblibre.org',
-  'https://invidious.lunar.icu',
+  'https://yewtu.be',
   'https://invidious.projectsegfau.lt',
-  'https://inv.makerlab.tech',
-  'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de',
+  'https://invidious.privacydev.net',
+  'https://inv.tux.pizza',
+  'https://invidious.no-logs.com',
+  'https://invidious.perennialte.ch',
 ];
 
 /**
@@ -70,13 +69,31 @@ export async function GET(request) {
     // Try extraction with fallback chain
     let result = null;
 
-    // 1. Try Cobalt API (Best for Vercel Serverless)
-    try {
-      result = await extractWithCobalt(videoId);
-    } catch (err) {
-      console.warn('[API/stream] Cobalt API failed:', err.message);
+    // 1. Try Custom Backend (Railway/Render) - BEST STABILITY
+    if (process.env.AUDIO_API_URL) {
+      try {
+        const backendUrl = process.env.AUDIO_API_URL.endsWith('/') 
+          ? `${process.env.AUDIO_API_URL}stream?id=${videoId}`
+          : `${process.env.AUDIO_API_URL}/stream?id=${videoId}`;
+          
+        const res = await fetch(backendUrl, { signal: AbortSignal.timeout(10000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) {
+            result = {
+              id: videoId,
+              audioUrl: data.url,
+              source: 'custom-backend',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[API/stream] Custom backend failed:', err.message);
+      }
+    }
 
-      // 2. Try Invidious
+    if (!result) {
+      // 2. Try Invidious (Multiple instances)
       try {
         result = await extractWithInvidious(videoId);
         result.source = 'invidious';
@@ -90,12 +107,12 @@ export async function GET(request) {
         } catch (err3) {
           console.warn('[API/stream] Piped failed:', err3.message);
           
-          // 4. Try yt-dlp (Only useful if running on local/VPS, will fail on Vercel)
+          // 4. Try Cobalt API (Often fails without auth on official instance)
           try {
-            result = await extractWithYtDlp(videoId);
+            result = await extractWithCobalt(videoId);
           } catch (err4) {
             console.error('[API/stream] All providers failed');
-            throw new Error('All audio extraction providers failed');
+            throw new Error('All audio extraction providers failed. Please try again later or configure a custom backend.');
           }
         }
       }
@@ -230,11 +247,11 @@ async function extractWithInvidious(videoId) {
  */
 async function extractWithPiped(videoId) {
   const pipedInstances = [
-    'https://pipedapi.in.projectsegfau.lt',
-    'https://pipedapi.us.projectsegfau.lt',
-    'https://api.piped.projectsegfau.lt',
     'https://pipedapi.kavin.rocks',
-    'https://pipedapi.syncpundit.io',
+    'https://api.piped.privacydev.net',
+    'https://piped-api.lunar.icu',
+    'https://api-piped.mha.fi',
+    'https://pipedapi.berrytube.tv',
     'https://piped-api.garudalinux.org',
   ];
 
