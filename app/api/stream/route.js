@@ -70,29 +70,29 @@ export async function GET(request) {
     // Try extraction with fallback chain
     let result = null;
 
-    // 1. Try yt-dlp (Option A)
+    // 1. Try Cobalt API (Best for Vercel Serverless)
     try {
-      result = await extractWithYtDlp(videoId);
+      result = await extractWithCobalt(videoId);
     } catch (err) {
-      console.warn('[API/stream] yt-dlp failed or not installed:', err.message);
+      console.warn('[API/stream] Cobalt API failed:', err.message);
 
-      // 2. Try Cobalt API (Option B)
+      // 2. Try Invidious
       try {
-        result = await extractWithCobalt(videoId);
+        result = await extractWithInvidious(videoId);
+        result.source = 'invidious';
       } catch (err2) {
-        console.warn('[API/stream] Cobalt API failed:', err2.message);
+        console.warn('[API/stream] Invidious failed:', err2.message);
 
-        // 3. Try Invidious
+        // 3. Try Piped
         try {
-          result = await extractWithInvidious(videoId);
-          result.source = 'invidious';
+          result = await extractWithPiped(videoId);
+          result.source = 'piped';
         } catch (err3) {
-          console.warn('[API/stream] Invidious failed:', err3.message);
-
-          // 4. Try Piped
+          console.warn('[API/stream] Piped failed:', err3.message);
+          
+          // 4. Try yt-dlp (Only useful if running on local/VPS, will fail on Vercel)
           try {
-            result = await extractWithPiped(videoId);
-            result.source = 'piped';
+            result = await extractWithYtDlp(videoId);
           } catch (err4) {
             console.error('[API/stream] All providers failed');
             throw new Error('All audio extraction providers failed');
@@ -158,7 +158,7 @@ async function extractWithYtDlp(videoId) {
  */
 async function extractWithCobalt(videoId) {
   const url = `https://www.youtube.com/watch?v=${videoId}`;
-  const res = await fetch('https://api.cobalt.tools/api/json', {
+  const res = await fetch('https://api.cobalt.tools/', {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
@@ -166,7 +166,9 @@ async function extractWithCobalt(videoId) {
     },
     body: JSON.stringify({
       url: url,
-      isAudioOnly: true,
+      downloadMode: 'audio',
+      audioFormat: 'mp3',
+      audioBitrate: '128',
     }),
     signal: AbortSignal.timeout(10000),
   });
@@ -177,7 +179,7 @@ async function extractWithCobalt(videoId) {
 
   const data = await res.json();
   if (data.status === 'error' || !data.url) {
-    throw new Error(data.text || 'Cobalt API returned an error');
+    throw new Error(data.error?.code || data.text || 'Cobalt API returned an error');
   }
 
   return {
