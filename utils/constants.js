@@ -7,6 +7,8 @@ export const STORAGE_KEYS = {
   REPEAT: 'ytm_repeat',
   SHUFFLE: 'ytm_shuffle',
   LANGUAGE: 'ytm_language',
+  CURRENT_TRACK: 'ytm_current_track',
+  CURRENT_TIME: 'ytm_current_time',
 };
 
 // Playback speeds

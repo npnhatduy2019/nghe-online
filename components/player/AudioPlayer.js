@@ -6,6 +6,7 @@ import PlayerControls from './PlayerControls';
 import ProgressBar from './ProgressBar';
 import VolumeControl from './VolumeControl';
 import SpeedControl from './SpeedControl';
+import SleepTimer from './SleepTimer';
 import NowPlaying from './NowPlaying';
 
 /**
@@ -31,7 +32,8 @@ export default function AudioPlayer() {
       <div className="audio-player__content">
         <NowPlaying />
         <PlayerControls />
-        <div className="audio-player__secondary">
+        <div className="audio-player__secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <SleepTimer />
           <VolumeControl />
           <SpeedControl />
         </div>

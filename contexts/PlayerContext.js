@@ -31,6 +31,7 @@ const ACTIONS = {
   SET_ERROR: 'SET_ERROR',
   SET_AUDIO_URL: 'SET_AUDIO_URL',
   REORDER_QUEUE: 'REORDER_QUEUE',
+  SET_SLEEP_TIMER_TARGET: 'SET_SLEEP_TIMER_TARGET',
 };
 
 // ─── Initial State ───────────────────────────────────────
@@ -49,6 +50,7 @@ function getInitialState() {
     queue: [],
     history: [],
     error: null,
+    sleepTimerTarget: null,
   };
 }
 
@@ -120,6 +122,9 @@ function playerReducer(state, action) {
     case ACTIONS.SET_ERROR:
       return { ...state, error: action.payload, isLoading: false };
 
+    case ACTIONS.SET_SLEEP_TIMER_TARGET:
+      return { ...state, sleepTimerTarget: action.payload };
+
     default:
       return state;
   }
@@ -130,6 +135,8 @@ export function PlayerProvider({ children }) {
   const [state, dispatch] = useReducer(playerReducer, null, getInitialState);
   const audioRef = useRef(null);
   const isInitialized = useRef(false);
+  const sleepTimerRef = useRef(null);
+  const lastSavedTimeRef = useRef(0);
 
   // Hydrate persisted state from localStorage
   useEffect(() => {
@@ -153,6 +160,15 @@ export function PlayerProvider({ children }) {
       history.forEach((track) => {
         dispatch({ type: ACTIONS.ADD_TO_HISTORY, payload: track });
       });
+    }
+
+    // Restore last playing track and time
+    const savedTrack = getFromStorage(STORAGE_KEYS.CURRENT_TRACK, null);
+    const savedTime = getFromStorage(STORAGE_KEYS.CURRENT_TIME, 0);
+    if (savedTrack) {
+      dispatch({ type: ACTIONS.SET_TRACK, payload: savedTrack });
+      // We will seek to savedTime after audio is loaded
+      lastSavedTimeRef.current = savedTime;
     }
   }, []);
 
@@ -191,7 +207,14 @@ export function PlayerProvider({ children }) {
     const audio = audioRef.current;
 
     const onTimeUpdate = () => {
-      dispatch({ type: ACTIONS.SET_CURRENT_TIME, payload: audio.currentTime });
+      const time = audio.currentTime;
+      dispatch({ type: ACTIONS.SET_CURRENT_TIME, payload: time });
+      
+      // Save current time every ~5 seconds
+      if (Math.abs(time - lastSavedTimeRef.current) > 5) {
+         lastSavedTimeRef.current = time;
+         setToStorage(STORAGE_KEYS.CURRENT_TIME, time);
+      }
     };
 
     const onDurationChange = () => {
@@ -208,7 +231,15 @@ export function PlayerProvider({ children }) {
       dispatch({ type: ACTIONS.SET_ERROR, payload: 'Không thể phát audio. Thử lại sau.' });
     };
     const onWaiting = () => dispatch({ type: ACTIONS.SET_LOADING, payload: true });
-    const onCanPlay = () => dispatch({ type: ACTIONS.SET_LOADING, payload: false });
+    const onCanPlay = () => {
+      dispatch({ type: ACTIONS.SET_LOADING, payload: false });
+      // If we have a saved time to restore, seek to it
+      if (lastSavedTimeRef.current > 0 && audio.currentTime < 1) {
+        audio.currentTime = lastSavedTimeRef.current;
+        // Only restore once per track load
+        lastSavedTimeRef.current = 0;
+      }
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('durationchange', onDurationChange);
@@ -249,6 +280,14 @@ export function PlayerProvider({ children }) {
   // ─── Fetch audio URL when track changes ────────────────
   useEffect(() => {
     if (!state.currentTrack) return;
+
+    // Save track
+    setToStorage(STORAGE_KEYS.CURRENT_TRACK, state.currentTrack);
+    // Reset saved time on new track unless we just restored it in the initial load
+    if (lastSavedTimeRef.current > 0 && getFromStorage(STORAGE_KEYS.CURRENT_TRACK)?.id !== state.currentTrack.id) {
+       lastSavedTimeRef.current = 0;
+       setToStorage(STORAGE_KEYS.CURRENT_TIME, 0);
+    }
 
     let cancelled = false;
 
@@ -436,6 +475,28 @@ export function PlayerProvider({ children }) {
     }
   }, [state.history, state.currentTrack, state.queue]);
 
+  const setSleepTimer = useCallback((minutes) => {
+    if (sleepTimerRef.current) {
+      clearTimeout(sleepTimerRef.current);
+      sleepTimerRef.current = null;
+    }
+
+    if (minutes === null || minutes <= 0) {
+      dispatch({ type: ACTIONS.SET_SLEEP_TIMER_TARGET, payload: null });
+      return;
+    }
+
+    const targetTime = Date.now() + minutes * 60 * 1000;
+    dispatch({ type: ACTIONS.SET_SLEEP_TIMER_TARGET, payload: targetTime });
+
+    sleepTimerRef.current = setTimeout(() => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      dispatch({ type: ACTIONS.SET_SLEEP_TIMER_TARGET, payload: null });
+    }, minutes * 60 * 1000);
+  }, []);
+
   const value = {
     ...state,
     audioRef,
@@ -453,6 +514,7 @@ export function PlayerProvider({ children }) {
     reorderQueue,
     playNextTrack,
     playPrevTrack,
+    setSleepTimer,
   };
 
   return (
