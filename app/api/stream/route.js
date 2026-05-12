@@ -33,11 +33,20 @@ const INVIDIOUS_INSTANCES = [
   'https://invidious.perennialte.ch',
 ];
 
+// Cobalt instances (Public working instances)
+const COBALT_INSTANCES = [
+  'https://cobalt.alpha.wolfy.love',
+  'https://grapefruit.clxxped.lol',
+  'https://fox.kittycat.boo',
+  'https://subito-c.meowing.de',
+  'https://nuko-c.meowing.de',
+];
+
 /**
  * GET /api/stream?id={videoId}
  * 
  * Extract audio stream URL from YouTube video.
- * Uses fallback chain: ytdl-core → Invidious → Piped
+ * Uses fallback chain: Custom Backend → Cobalt → Invidious → Piped
  */
 export async function GET(request) {
   try {
@@ -93,26 +102,26 @@ export async function GET(request) {
     }
 
     if (!result) {
-      // 2. Try Invidious (Multiple instances)
+      // 2. Try Cobalt API (Option 2 - Zero Setup)
       try {
-        result = await extractWithInvidious(videoId);
-        result.source = 'invidious';
-      } catch (err2) {
-        console.warn('[API/stream] Invidious failed:', err2.message);
+        result = await extractWithCobalt(videoId);
+      } catch (err) {
+        console.warn('[API/stream] All Cobalt instances failed:', err.message);
 
-        // 3. Try Piped
+        // 3. Try Invidious (Multiple instances)
         try {
-          result = await extractWithPiped(videoId);
-          result.source = 'piped';
-        } catch (err3) {
-          console.warn('[API/stream] Piped failed:', err3.message);
-          
-          // 4. Try Cobalt API (Often fails without auth on official instance)
+          result = await extractWithInvidious(videoId);
+          result.source = 'invidious';
+        } catch (err2) {
+          console.warn('[API/stream] Invidious failed:', err2.message);
+
+          // 4. Try Piped
           try {
-            result = await extractWithCobalt(videoId);
-          } catch (err4) {
+            result = await extractWithPiped(videoId);
+            result.source = 'piped';
+          } catch (err3) {
             console.error('[API/stream] All providers failed');
-            throw new Error('All audio extraction providers failed. Please try again later or configure a custom backend.');
+            throw new Error('All audio extraction providers failed. Please try again later.');
           }
         }
       }
@@ -175,35 +184,42 @@ async function extractWithYtDlp(videoId) {
  */
 async function extractWithCobalt(videoId) {
   const url = `https://www.youtube.com/watch?v=${videoId}`;
-  const res = await fetch('https://api.cobalt.tools/', {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      url: url,
-      downloadMode: 'audio',
-      audioFormat: 'mp3',
-      audioBitrate: '128',
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
+  let lastError;
 
-  if (!res.ok) {
-    throw new Error('Cobalt API request failed');
+  for (const instance of COBALT_INSTANCES) {
+    try {
+      const res = await fetch(instance, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url,
+          downloadMode: 'audio',
+          audioFormat: 'mp3',
+          audioBitrate: '128',
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      if (data.status === 'error' || !data.url) continue;
+
+      return {
+        id: videoId,
+        audioUrl: data.url,
+        source: `cobalt (${new URL(instance).hostname})`,
+      };
+    } catch (err) {
+      lastError = err;
+      continue;
+    }
   }
 
-  const data = await res.json();
-  if (data.status === 'error' || !data.url) {
-    throw new Error(data.error?.code || data.text || 'Cobalt API returned an error');
-  }
-
-  return {
-    id: videoId,
-    audioUrl: data.url,
-    source: 'cobalt',
-  };
+  throw lastError || new Error('All Cobalt instances failed');
 }
 
 /**
